@@ -3,10 +3,7 @@
 using CsvHelper;
 using HeadHunterSearcher;
 using Newtonsoft.Json.Linq;
-using System.ComponentModel.Design;
 using System.Globalization;
-using System.Net.Http.Json;
-using System.Text.Json;
 
 var companyNamesFilename = "CompanyNames.csv";
 var outputFolder = "output";
@@ -14,7 +11,7 @@ var employeesFolder = $"{outputFolder + Path.DirectorySeparatorChar}employees";
 var exactEmployeesFolder = $"{employeesFolder + Path.DirectorySeparatorChar}exact";
 var employeesWithVacanciesFolder = $"{exactEmployeesFolder + Path.DirectorySeparatorChar}with_vacancies";
 var vacancyListFolder = $"{employeesWithVacanciesFolder + Path.DirectorySeparatorChar}vacancies";
-//var vacanciesFolder = $"{vacancyListFolder + Path.DirectorySeparatorChar}vacancies";
+var vacanciesFolder = $"{vacancyListFolder + Path.DirectorySeparatorChar}vacancies";
 var cursorFilename = $"{outputFolder + Path.DirectorySeparatorChar}LastProcessedLine.txt";
 var vacancyCursorFilename = $"{vacancyListFolder + Path.DirectorySeparatorChar}LastProcessedLine.txt";
 var companyNames = File.ReadAllLines(companyNamesFilename);
@@ -28,7 +25,7 @@ httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v2");
 var requestsPerSec = 4f;
 var delay = TimeSpan.FromSeconds(1 / requestsPerSec);
 
-//await FindCompanies(companyNames, employeesFolder, cursorFilename, httpClient, delay);
+await FindCompanies(companyNames, employeesFolder, cursorFilename, httpClient, delay);
 await FilterCompanies(companyNames, vacancyCursorFilename, vacancyListFolder, employeesWithVacanciesFolder, exactEmployeesFolder, employeesFolder, httpClient, delay);
 
 Console.WriteLine("Завершено. Нажмите любую клавишу.");
@@ -36,22 +33,22 @@ Console.ReadKey();
 
 static async Task FilterCompanies(string[] companyNames, string vacancyCursorFilename, string vacancyListFolder, string employeesWithVacanciesFolder, string exactEmployeesFolder, string employeesFolder, HttpClient httpClient, TimeSpan delay)
 {
-    //var companyJsons = Directory.EnumerateFiles(employeesFolder, "*.json");
-    //foreach (var jsonPath in companyJsons)
-    //{
-    //dynamic json = JObject.Parse(File.ReadAllText(jsonPath));
-    //await ExpandEmployersMultipageResponse(employeesFolder, jsonPath, json, httpClient, delay);
-    //await FilterExactNames(employeesFolder, exactEmployeesFolder, jsonPath, json);
-    //}
-    //await FilterWithVacancies(exactEmployeesFolder, employeesWithVacanciesFolder);
-    //await GetCompanyVacancies(employeesWithVacanciesFolder, vacancyListFolder, httpClient, delay);
+    var companyJsons = Directory.EnumerateFiles(employeesFolder, "*.json");
+    foreach (var jsonPath in companyJsons)
+    {
+        dynamic json = JObject.Parse(File.ReadAllText(jsonPath));
+        await ExpandEmployersMultipageResponse(employeesFolder, jsonPath, json, httpClient, delay);
+        await FilterExactNames(employeesFolder, exactEmployeesFolder, jsonPath, json);
+    }
+    await FilterWithVacancies(exactEmployeesFolder, employeesWithVacanciesFolder);
+    await GetCompanyVacancies(employeesWithVacanciesFolder, vacancyListFolder, httpClient, delay);
 
-    //var companyVacanciesFiles = Directory.EnumerateFiles(vacancyListFolder, "*.json");
-    //foreach (var jsonPath in companyVacanciesFiles)
-    //{
-    //    dynamic json = JObject.Parse(File.ReadAllText(jsonPath));
-    //    await ExpandVacanciesMultipageResponse(vacancyListFolder, jsonPath, json, httpClient, delay);
-    //}
+    var companyVacanciesFiles = Directory.EnumerateFiles(vacancyListFolder, "*.json");
+    foreach (var jsonPath in companyVacanciesFiles)
+    {
+        dynamic json = JObject.Parse(File.ReadAllText(jsonPath));
+        await ExpandVacanciesMultipageResponse(vacancyListFolder, jsonPath, json, httpClient, delay);
+    }
 
     await GetVacancies(vacancyCursorFilename, vacancyListFolder, httpClient, delay);
 }
