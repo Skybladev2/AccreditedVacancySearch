@@ -3,6 +3,7 @@
 using CsvHelper;
 using HeadHunterSearcher;
 using Newtonsoft.Json.Linq;
+using System.Diagnostics.Metrics;
 using System.Globalization;
 
 var companyNamesFilename = "CompanyNames.csv";
@@ -16,17 +17,97 @@ var cursorFilename = $"{outputFolder + Path.DirectorySeparatorChar}LastProcessed
 var vacancyCursorFilename = $"{vacancyListFolder + Path.DirectorySeparatorChar}LastProcessedLine.txt";
 var companyNames = File.ReadAllLines(companyNamesFilename);
 
-var hhApiBaseUrl = "https://api.hh.ru/";
+var hhApiBaseUrl = "https://api.hh.ru";
+var vacanciesMethod = "/vacancies";
+var searchTextQueryParamName = "text=";
+var searchText = "Unity";
+var queryUrl = $"{hhApiBaseUrl}{vacanciesMethod}?{searchTextQueryParamName}{searchText}";
 var httpClient = new HttpClient();
-httpClient.BaseAddress = new Uri(hhApiBaseUrl);
-httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v2");
+//httpClient.BaseAddress = new Uri();
+httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v3");
 
 // https://github.com/hhru/api/issues/74
 var requestsPerSec = 4f;
 var delay = TimeSpan.FromSeconds(1 / requestsPerSec);
 
-await FindCompanies(companyNames, employeesFolder, cursorFilename, httpClient, delay);
-await FilterCompanies(companyNames, vacancyCursorFilename, vacancyListFolder, employeesWithVacanciesFolder, exactEmployeesFolder, employeesFolder, httpClient, delay);
+Console.WriteLine($"Запрашиваем {queryUrl}");
+var response = httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, queryUrl)).Result;
+dynamic vacancyJson = null;
+if (response.IsSuccessStatusCode)
+{
+    vacancyJson = JObject.Parse(response.Content.ReadAsStringAsync().Result);
+    Console.WriteLine(vacancyJson.ToString());
+}
+else
+{
+    Console.WriteLine(response);
+    var content = response.Content.ReadAsStringAsync().Result;
+    var errorFilename = Path.Combine(vacancyListFolder, "error.txt");
+    File.WriteAllText(errorFilename, content);
+    Console.WriteLine(content);
+    if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+    {
+        dynamic errorJson = JObject.Parse(content);
+        // https://github.com/hhru/api/blob/master/docs/errors.md#%D0%BD%D0%B5%D0%BE%D0%B1%D1%85%D0%BE%D0%B4%D0%B8%D0%BC%D0%BE%D1%81%D1%82%D1%8C-%D0%BF%D1%80%D0%BE%D0%B9%D1%82%D0%B8-%D0%BA%D0%B0%D0%BF%D1%87%D1%83
+        // https://ru.stackoverflow.com/questions/1411275/%D0%9F%D0%B0%D1%80%D1%81%D0%B8%D0%BD%D0%B3-hh-ru-%D0%BE%D1%88%D0%B8%D0%B1%D0%BA%D0%B0-%D1%82%D1%80%D0%B5%D0%B1%D1%83%D0%B5%D1%82-%D0%BA%D0%B0%D0%BF%D1%87%D1%83
+        foreach (var error in errorJson.errors)
+        {
+            if (error.type == "captcha_required")
+            {
+                Console.WriteLine($"Файл ссылки на каптчу сохранён по адресу {errorFilename}");
+            }
+        }
+        return;
+    }
+}
+
+var vacancy = new Vacancy();
+vacancy.Address = vacancyJson.address != null ? vacancyJson.address.raw : null;
+//vacancy.AreaId = vacancyJson.area.id;
+//vacancy.AreaName = vacancyJson.area.name;
+//vacancy.CompanyId = vacancyJson.employer.id;
+//vacancy.CompanyName = vacancyJson.employer.name;
+//vacancy.CompanyTrusted = vacancyJson.employer.trusted;
+//vacancy.CompanyUrl = vacancyJson.employer.alternate_url;
+//vacancy.Description = vacancyJson.description;
+//vacancy.EmploymentId = vacancyJson.employment.id;
+//vacancy.EmploymentName = vacancyJson.employment.name;
+//vacancy.Experience = vacancyJson.experience.name;
+
+//foreach (var role in vacancyJson.professional_roles)
+//{
+//    vacancy.ProfessionalRoles += role.name + ";";
+//}
+
+//vacancy.PublishedAt = vacancyJson.published_at;
+
+//if (vacancyJson.salary != null)
+//{
+//    vacancy.SalaryFrom = vacancyJson.salary.from;
+//    vacancy.SalaryTo = vacancyJson.salary.to;
+//    vacancy.SalaryCurrency = vacancyJson.salary.currency;
+//    vacancy.SalaryGross = vacancyJson.gross;
+//}
+//vacancy.ScheduleId = vacancyJson.schedule.id;
+//vacancy.ScheduleName = vacancyJson.schedule.name;
+
+//foreach (var specialisation in vacancyJson.specializations)
+//{
+//    vacancy.Specialisations += specialisation.id + ": " + specialisation.name + "|";
+//}
+
+//vacancy.VacancyId = vacancyJson.id;
+//vacancy.VacancyName = vacancyJson.name;
+//vacancy.VacancyUrl = vacancyJson.alternate_url;
+
+//csv.WriteRecord(vacancy);
+//csv.NextRecord();
+//csv.Flush();
+
+//Console.WriteLine($"Сохранена информация о вакансии {vacancy.VacancyName}. Обработано {++counter}");
+            
+
+//File.WriteAllText(vacancyCursorFilename, (line++).ToString());
 
 Console.WriteLine("Завершено. Нажмите любую клавишу.");
 Console.ReadKey();
