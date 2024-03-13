@@ -435,19 +435,8 @@ static async Task<IEnumerable<string>> GetVacanciesSearch(string outputFolder, s
         var tasks = new List<Task>();
         for (int page = 0; page < (int)vacancySearchJson.pages; page++)
         {
-            Console.WriteLine($"Запрашиваем {queryUrl}&page={page}");
-            var task = httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, $"{queryUrl}&page={page}")).ContinueWith(t =>
-            {
-                var response = t.Result;
-                vacancySearchJson = JObject.Parse(response.Content.ReadAsStringAsync().Result);
-                foreach (var item in vacancySearchJson.items)
-                {
-                    urls.Add(item.url.ToString());
-                }
-                return response;
-            });
-            tasks.Add(task);
-            
+            tasks.Add(GetRequestJsonAsync($"{queryUrl}&page={page}", httpClient)
+                .ContinueWith(t => urls.AddRange(t.Result)));
             await Task.Delay(TimeSpan.FromSeconds(delay));
         }
         await Task.WhenAll(tasks);
@@ -480,4 +469,18 @@ static async Task<IEnumerable<string>> GetVacanciesSearch(string outputFolder, s
 
         return Enumerable.Empty<string>();
     }
+}
+
+static async Task<List<string>> GetRequestJsonAsync(string queryUrl, HttpClient httpClient)
+{
+    Console.WriteLine($"Запрашиваем {queryUrl}");
+    var urls = new List<string>();
+    var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, queryUrl));
+    dynamic vacancySearchJson = JObject.Parse(await response.Content.ReadAsStringAsync());
+    foreach (var item in vacancySearchJson.items)
+    {
+        urls.Add(item.url.ToString());
+    }
+
+    return urls;
 }
