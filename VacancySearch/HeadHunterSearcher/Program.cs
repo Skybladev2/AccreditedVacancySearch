@@ -6,69 +6,46 @@ using Newtonsoft.Json.Linq;
 using System.Diagnostics.Metrics;
 using System.Globalization;
 
-var companyNamesFilename = "CompanyNames.csv";
 var outputFolder = "output";
-var employeesFolder = $"{outputFolder + Path.DirectorySeparatorChar}employees";
-var exactEmployeesFolder = $"{employeesFolder + Path.DirectorySeparatorChar}exact";
-var employeesWithVacanciesFolder = $"{exactEmployeesFolder + Path.DirectorySeparatorChar}with_vacancies";
-var vacancyListFolder = $"{employeesWithVacanciesFolder + Path.DirectorySeparatorChar}vacancies";
-var vacanciesFolder = $"{vacancyListFolder + Path.DirectorySeparatorChar}vacancies";
+var vacanciesFolder = $"{outputFolder + Path.DirectorySeparatorChar}vacancies";
 var cursorFilename = $"{outputFolder + Path.DirectorySeparatorChar}LastProcessedLine.txt";
-var vacancyCursorFilename = $"{vacancyListFolder + Path.DirectorySeparatorChar}LastProcessedLine.txt";
-var companyNames = File.ReadAllLines(companyNamesFilename);
+//var vacancyCursorFilename = $"{vacancyListFolder + Path.DirectorySeparatorChar}LastProcessedLine.txt";
 
 var hhApiBaseUrl = "https://api.hh.ru";
 var vacanciesMethod = "/vacancies";
 var searchTextQueryParamName = "text=";
+var pageSize = 100;
+var perPageArgument = $"per_page={pageSize}";
 var searchText = "Unity";
-var queryUrl = $"{hhApiBaseUrl}{vacanciesMethod}?{searchTextQueryParamName}{searchText}";
+var queryUrl = $"{hhApiBaseUrl}{vacanciesMethod}?{searchTextQueryParamName}{searchText}&{perPageArgument}";
 var httpClient = new HttpClient();
 //httpClient.BaseAddress = new Uri();
 httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v3");
 
 // https://github.com/hhru/api/issues/74
-var requestsPerSec = 4f;
-var delay = TimeSpan.FromSeconds(1 / requestsPerSec);
+var maxRequestsPerSec = 1f;
+var delay = TimeSpan.FromSeconds(1 / maxRequestsPerSec);
 
-Console.WriteLine($"Запрашиваем {queryUrl}");
-var response = httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, queryUrl)).Result;
-dynamic vacancyJson = null;
-if (response.IsSuccessStatusCode)
+var urls = await GetVacanciesSearch(outputFolder, queryUrl, httpClient, maxRequestsPerSec);
+
+Console.WriteLine($"Найдено {urls.Count()} вакансий");
+
+foreach (var url in urls)
 {
-    vacancyJson = JObject.Parse(response.Content.ReadAsStringAsync().Result);
-    Console.WriteLine(vacancyJson.ToString());
+    Console.WriteLine(url);
 }
-else
-{
-    Console.WriteLine(response);
-    var content = response.Content.ReadAsStringAsync().Result;
-    var errorFilename = Path.Combine(vacancyListFolder, "error.txt");
-    File.WriteAllText(errorFilename, content);
-    Console.WriteLine(content);
-    if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
-    {
-        dynamic errorJson = JObject.Parse(content);
-        // https://github.com/hhru/api/blob/master/docs/errors.md#%D0%BD%D0%B5%D0%BE%D0%B1%D1%85%D0%BE%D0%B4%D0%B8%D0%BC%D0%BE%D1%81%D1%82%D1%8C-%D0%BF%D1%80%D0%BE%D0%B9%D1%82%D0%B8-%D0%BA%D0%B0%D0%BF%D1%87%D1%83
-        // https://ru.stackoverflow.com/questions/1411275/%D0%9F%D0%B0%D1%80%D1%81%D0%B8%D0%BD%D0%B3-hh-ru-%D0%BE%D1%88%D0%B8%D0%B1%D0%BA%D0%B0-%D1%82%D1%80%D0%B5%D0%B1%D1%83%D0%B5%D1%82-%D0%BA%D0%B0%D0%BF%D1%87%D1%83
-        foreach (var error in errorJson.errors)
-        {
-            if (error.type == "captcha_required")
-            {
-                Console.WriteLine($"Файл ссылки на каптчу сохранён по адресу {errorFilename}");
-            }
-        }
-        return;
-    }
-}
+
+
 
 var vacancy = new Vacancy();
-vacancy.Address = vacancyJson.address != null ? vacancyJson.address.raw : null;
+//vacancy.Address = vacancyJson.address != null ? vacancyJson.address.raw : null;
 //vacancy.AreaId = vacancyJson.area.id;
 //vacancy.AreaName = vacancyJson.area.name;
 //vacancy.CompanyId = vacancyJson.employer.id;
 //vacancy.CompanyName = vacancyJson.employer.name;
 //vacancy.CompanyTrusted = vacancyJson.employer.trusted;
 //vacancy.CompanyUrl = vacancyJson.employer.alternate_url;
+//vacancy.IsAccredited = vacancyJson.employer.accredited_it_employer;
 //vacancy.Description = vacancyJson.description;
 //vacancy.EmploymentId = vacancyJson.employment.id;
 //vacancy.EmploymentName = vacancyJson.employment.name;
@@ -105,12 +82,19 @@ vacancy.Address = vacancyJson.address != null ? vacancyJson.address.raw : null;
 //csv.Flush();
 
 //Console.WriteLine($"Сохранена информация о вакансии {vacancy.VacancyName}. Обработано {++counter}");
-            
+
 
 //File.WriteAllText(vacancyCursorFilename, (line++).ToString());
 
 Console.WriteLine("Завершено. Нажмите любую клавишу.");
-Console.ReadKey();
+try
+{
+    Console.ReadKey();
+}
+catch (InvalidOperationException)
+{
+    // Handle "An unhandled exception of type 'System.InvalidOperationException' occurred in System.Console.dll"
+}
 
 static async Task FilterCompanies(string[] companyNames, string vacancyCursorFilename, string vacancyListFolder, string employeesWithVacanciesFolder, string exactEmployeesFolder, string employeesFolder, HttpClient httpClient, TimeSpan delay)
 {
@@ -433,5 +417,67 @@ static async Task SaveResponse(string folder, string filename, HttpResponseMessa
     {
         Console.WriteLine(response);
         Console.WriteLine(response.Content);
+    }
+}
+
+static async Task<IEnumerable<string>> GetVacanciesSearch(string outputFolder, string queryUrl, HttpClient httpClient, float maxRequestsPerSec)
+{
+    Console.WriteLine($"Запрашиваем {queryUrl}");
+    var response = httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, queryUrl)).Result;
+    dynamic vacancySearchJson = null;
+    var delay =  1 / maxRequestsPerSec;
+    if (response.IsSuccessStatusCode)
+    {
+        vacancySearchJson = JObject.Parse(response.Content.ReadAsStringAsync().Result);
+        Console.WriteLine(vacancySearchJson.ToString());
+
+        var urls = new List<string>();
+        var tasks = new List<Task>();
+        for (int page = 0; page < (int)vacancySearchJson.pages; page++)
+        {
+            Console.WriteLine($"Запрашиваем {queryUrl}&page={page}");
+            var task = httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, $"{queryUrl}&page={page}")).ContinueWith(t =>
+            {
+                var response = t.Result;
+                vacancySearchJson = JObject.Parse(response.Content.ReadAsStringAsync().Result);
+                foreach (var item in vacancySearchJson.items)
+                {
+                    urls.Add(item.url.ToString());
+                }
+                return response;
+            });
+            tasks.Add(task);
+            
+            await Task.Delay(TimeSpan.FromSeconds(delay));
+        }
+        await Task.WhenAll(tasks);
+
+        return urls;
+    }
+    else
+    {
+        Console.WriteLine(response);
+        var content = response.Content.ReadAsStringAsync().Result;
+        var errorFilename = Path.Combine(outputFolder, "error.txt");
+        var directory = Path.GetDirectoryName(errorFilename);
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(errorFilename, content);
+        Console.WriteLine(content);
+        if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+        {
+            dynamic errorJson = JObject.Parse(content);
+            // https://github.com/hhru/api/blob/master/docs/errors.md#%D0%BD%D0%B5%D0%BE%D0%B1%D1%85%D0%BE%D0%B4%D0%B8%D0%BC%D0%BE%D1%81%D1%82%D1%8C-%D0%BF%D1%80%D0%BE%D0%B9%D1%82%D0%B8-%D0%BA%D0%B0%D0%BF%D1%87%D1%83
+            // https://ru.stackoverflow.com/questions/1411275/%D0%9F%D0%B0%D1%80%D1%81%D0%B8%D0%BD%D0%B3-hh-ru-%D0%BE%D1%88%D0%B8%D0%B1%D0%BA%D0%B0-%D1%82%D1%80%D0%B5%D0%B1%D1%83%D0%B5%D1%82-%D0%BA%D0%B0%D0%BF%D1%87%D1%83
+            foreach (var error in errorJson.errors)
+            {
+                if (error.type == "captcha_required")
+                {
+                    Console.WriteLine($"Файл ссылки на каптчу сохранён по адресу {errorFilename}");
+                }
+            }
+            return Enumerable.Empty<string>();
+        }
+
+        return Enumerable.Empty<string>();
     }
 }

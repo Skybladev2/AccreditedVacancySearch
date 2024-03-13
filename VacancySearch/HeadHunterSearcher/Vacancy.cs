@@ -31,5 +31,6 @@ namespace HeadHunterSearcher
         public string ProfessionalRoles { get; set; }
         public DateTimeOffset PublishedAt { get; set; }
         public string Address { get; set; }
+        public bool IsAccredited { get; set; }
     }
 }
