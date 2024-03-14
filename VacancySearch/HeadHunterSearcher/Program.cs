@@ -4,19 +4,17 @@ using CsvHelper;
 using HeadHunterSearcher;
 using Newtonsoft.Json.Linq;
 using System.Collections.Concurrent;
-using System.Diagnostics.Metrics;
 using System.Globalization;
 
 var outputFolder = "output";
 var vacanciesFolder = $"{outputFolder + Path.DirectorySeparatorChar}vacancies";
-var cursorFilename = $"{outputFolder + Path.DirectorySeparatorChar}LastProcessedLine.txt";
 
 var hhApiBaseUrl = "https://api.hh.ru";
 var vacanciesMethod = "/vacancies";
 var searchTextQueryParamName = "text=";
 var pageSize = 100;
 var perPageArgument = $"per_page={pageSize}";
-var searchText = "Unity";
+var searchText = "Разработчик C#";
 var queryUrl = $"{hhApiBaseUrl}{vacanciesMethod}?{searchTextQueryParamName}{searchText}&{perPageArgument}";
 var httpClient = new HttpClient();
 httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v3");
