@@ -10,7 +10,6 @@ using System.Globalization;
 var outputFolder = "output";
 var vacanciesFolder = $"{outputFolder + Path.DirectorySeparatorChar}vacancies";
 var cursorFilename = $"{outputFolder + Path.DirectorySeparatorChar}LastProcessedLine.txt";
-//var vacancyCursorFilename = $"{vacancyListFolder + Path.DirectorySeparatorChar}LastProcessedLine.txt";
 
 var hhApiBaseUrl = "https://api.hh.ru";
 var vacanciesMethod = "/vacancies";
@@ -20,7 +19,6 @@ var perPageArgument = $"per_page={pageSize}";
 var searchText = "Unity";
 var queryUrl = $"{hhApiBaseUrl}{vacanciesMethod}?{searchTextQueryParamName}{searchText}&{perPageArgument}";
 var httpClient = new HttpClient();
-//httpClient.BaseAddress = new Uri();
 httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v3");
 
 // https://github.com/hhru/api/issues/74
@@ -59,7 +57,7 @@ using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
     foreach (var url in urls)
     {
         Console.WriteLine($"Запрашиваем {url}");
-        tasks.Add(GetRequestJsonAsync(url, httpClient)
+        tasks.Add(GetRequestJsonAsync(url, httpClient, outputFolder)
                 .ContinueWith(t =>
                 {
                     var vacancy = GetVacancy(t.Result);
@@ -78,8 +76,6 @@ using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
     }
 }
 
-//File.WriteAllText(vacancyCursorFilename, (line++).ToString());
-
 Console.WriteLine("Завершено. Нажмите любую клавишу.");
 try
 {
@@ -93,24 +89,41 @@ catch (InvalidOperationException)
 static async Task<IEnumerable<string>> GetVacanciesSearch(string outputFolder, string queryUrl, HttpClient httpClient, TimeSpan delay)
 {
     Console.WriteLine($"Запрашиваем {queryUrl}");
-    var response = httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, queryUrl)).Result;
-    dynamic vacancySearchJson = null;
+    var response = await GetRequestJsonAsync(queryUrl, httpClient, outputFolder);
+    Console.WriteLine(response.ToString());
+
+    var urls = new List<string>();
+    var tasks = new ConcurrentBag<Task>();
+    for (int page = 0; page < (int)response.pages; page++)
+    {
+        tasks.Add(GetUrlsFromRequestJsonAsync($"{queryUrl}&page={page}", httpClient, outputFolder)
+            .ContinueWith(t => urls.AddRange(t.Result)));
+        await Task.Delay(delay);
+    }
+    await Task.WhenAll(tasks);
+
+    return urls;
+}
+
+static async Task<List<string>> GetUrlsFromRequestJsonAsync(string queryUrl, HttpClient httpClient, string outputFolder)
+{
+    Console.WriteLine($"Запрашиваем {queryUrl}");
+    var urls = new List<string>();
+    dynamic vacancySearchJson = await GetRequestJsonAsync(queryUrl, httpClient, outputFolder);
+    foreach (var item in vacancySearchJson.items)
+    {
+        urls.Add(item.url.ToString());
+    }
+
+    return urls;
+}
+
+static async Task<dynamic> GetRequestJsonAsync(string queryUrl, HttpClient httpClient, string outputFolder)
+{
+    var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, queryUrl));
     if (response.IsSuccessStatusCode)
     {
-        vacancySearchJson = JObject.Parse(response.Content.ReadAsStringAsync().Result);
-        Console.WriteLine(vacancySearchJson.ToString());
-
-        var urls = new List<string>();
-        var tasks = new ConcurrentBag<Task>();
-        for (int page = 0; page < (int)vacancySearchJson.pages; page++)
-        {
-            tasks.Add(GetUrlsFromRequestJsonAsync($"{queryUrl}&page={page}", httpClient)
-                .ContinueWith(t => urls.AddRange(t.Result)));
-            await Task.Delay(delay);
-        }
-        await Task.WhenAll(tasks);
-
-        return urls;
+        return JObject.Parse(await response.Content.ReadAsStringAsync());
     }
     else
     {
@@ -133,30 +146,11 @@ static async Task<IEnumerable<string>> GetVacanciesSearch(string outputFolder, s
                     Console.WriteLine($"Файл ссылки на каптчу сохранён по адресу {errorFilename}");
                 }
             }
-            return Enumerable.Empty<string>();
+            return null;
         }
 
-        return Enumerable.Empty<string>();
+        return null;
     }
-}
-
-static async Task<List<string>> GetUrlsFromRequestJsonAsync(string queryUrl, HttpClient httpClient)
-{
-    Console.WriteLine($"Запрашиваем {queryUrl}");
-    var urls = new List<string>();
-    dynamic vacancySearchJson = await GetRequestJsonAsync(queryUrl, httpClient);
-    foreach (var item in vacancySearchJson.items)
-    {
-        urls.Add(item.url.ToString());
-    }
-
-    return urls;
-}
-
-static async Task<dynamic> GetRequestJsonAsync(string queryUrl, HttpClient httpClient)
-{
-    var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, queryUrl));
-    return JObject.Parse(await response.Content.ReadAsStringAsync());
 }
 
 static Vacancy GetVacancy(dynamic vacancyJson)
