@@ -32,7 +32,7 @@ namespace HeadHunterSearcher
         public string KeySkills { get; set; }
         public DateTimeOffset PublishedAt { get; set; }
         public string Address { get; set; }
-        public bool IsAccreditedCompany { get; set; }
+        public bool? IsAccreditedCompany { get; set; }
         public string WorkingTimeIntervals { get; set; }
         public string WorkingTimeModes { get; set; }
         public string BillingType { get; set; }

@@ -14,7 +14,7 @@ var vacanciesMethod = "/vacancies";
 var searchTextQueryParamName = "text=";
 var pageSize = 100;
 var perPageArgument = $"per_page={pageSize}";
-var searchText = "Разработчик C#";
+var searchText = "Разработчик .NET";
 var queryUrl = $"{hhApiBaseUrl}{vacanciesMethod}?{searchTextQueryParamName}{searchText}&{perPageArgument}";
 var httpClient = new HttpClient();
 httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v3");
