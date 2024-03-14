@@ -29,7 +29,14 @@ namespace HeadHunterSearcher
         public string Description { get; set; }
         public string Specialisations { get; set; }
         public string ProfessionalRoles { get; set; }
+        public string KeySkills { get; set; }
         public DateTimeOffset PublishedAt { get; set; }
         public string Address { get; set; }
+        public bool IsAccreditedCompany { get; set; }
+        public string WorkingTimeIntervals { get; set; }
+        public string WorkingTimeModes { get; set; }
+        public string BillingType { get; set; }
+        public string Type { get; set; }
+        public string WorkingDays { get; set; }
     }
 }
