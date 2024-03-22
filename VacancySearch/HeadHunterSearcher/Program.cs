@@ -14,74 +14,27 @@ var vacanciesMethod = "/vacancies";
 var searchTextQueryParamName = "text=";
 var pageSize = 100;
 var perPageArgument = $"per_page={pageSize}";
-var searchText = Uri.EscapeDataString("NAME:(Разработчик C#)");
-var queryUrl = $"{hhApiBaseUrl}{vacanciesMethod}?{searchTextQueryParamName}{searchText}&{perPageArgument}";
-var httpClient = new HttpClient();
-httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v3");
-
-// https://github.com/hhru/api/issues/74
-var maxRequestsPerSec = 1f;
-var delay = TimeSpan.FromSeconds(1 / maxRequestsPerSec);
-
-var urls = await GetVacanciesSearch(outputFolder, queryUrl, httpClient, delay);
-
-Console.WriteLine($"Найдено {urls.Count()} вакансий");
-
-foreach (var url in urls)
+var searchTexts = new List<string>()
 {
-    Console.WriteLine(url);
-}
+    "Unity",
+    "Разработчик C#",
+    "Разработчик .NET",
+    "C# Developer",
+    ".NET Developer",
+    "Backend Developer",
+    "Backend разработчик",
+    "Бэкенд-разработчик",
+    "Golang Developer",
+    "Go Developer",
+    "Разработчик Golang",
+    "Разработчик Go",
+    "Build Engineer",
+};
 
-var vacanciesFilePath = Path.Combine(vacanciesFolder, "Vacancies.csv");
-
-if (!Directory.Exists(vacanciesFolder))
+foreach (var searchText in searchTexts)
 {
-    Directory.CreateDirectory(vacanciesFolder);
-}
 
-using (var writer = new StreamWriter(vacanciesFilePath, true))
-using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
-{
-    if (new FileInfo(vacanciesFilePath).Length == 0)
-    {
-        csv.WriteHeader<Vacancy>();
-        csv.NextRecord();
-        csv.Flush();
-    }
-
-    var counter = 0;
-    var tasks = new ConcurrentBag<Task>();
-    var vacancies = new ConcurrentBag<Vacancy>();
-    foreach (var url in urls)
-    {
-        Console.WriteLine($"Запрашиваем {url}");
-        tasks.Add(GetRequestJsonAsync(url, httpClient, outputFolder)
-                .ContinueWith(t =>
-                {
-                    var vacancy = GetVacancy(t.Result);
-                    vacancies.Add(vacancy);
-                    Console.WriteLine($"Сохранена информация о вакансии {vacancy.VacancyName}. Обработано {++counter}");
-                }));
-        await Task.Delay(delay);
-    }
-    await Task.WhenAll(tasks);
-
-    foreach (var vacancy in vacancies)
-    {
-        csv.WriteRecord(vacancy);
-        csv.NextRecord();
-        csv.Flush();
-    }
-}
-
-Console.WriteLine("Завершено. Нажмите любую клавишу.");
-try
-{
-    Console.ReadKey();
-}
-catch (InvalidOperationException)
-{
-    // Handle "An unhandled exception of type 'System.InvalidOperationException' occurred in System.Console.dll"
+    await SearchVacancy(outputFolder, vacanciesFolder, hhApiBaseUrl, vacanciesMethod, searchTextQueryParamName, perPageArgument, searchText);
 }
 
 static async Task<IEnumerable<string>> GetVacanciesSearch(string outputFolder, string queryUrl, HttpClient httpClient, TimeSpan delay)
@@ -118,7 +71,31 @@ static async Task<List<string>> GetUrlsFromRequestJsonAsync(string queryUrl, Htt
 
 static async Task<dynamic> GetRequestJsonAsync(string queryUrl, HttpClient httpClient, string outputFolder)
 {
-    var response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, queryUrl));
+    const int maxRetries = 5;
+    int retryCount = 0;
+    TimeSpan delay = TimeSpan.FromSeconds(60);
+
+    HttpResponseMessage? response = null;
+    while (retryCount < maxRetries)
+    {
+        try
+        {
+            response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, queryUrl));
+            break;
+        }
+        catch (System.Net.Sockets.SocketException ex)
+        {
+            Console.WriteLine($"Ошибка при обращении к {queryUrl}. Ошибка {ex.SocketErrorCode}. Повтор {retryCount + 1} из {maxRetries}");
+            await Task.Delay(delay);
+            delay = TimeSpan.FromSeconds(Math.Pow(2, retryCount + 1));
+            retryCount++;
+        }
+    }
+
+    if(response == null){
+        throw new Exception($"Не удалось получить данные по запросу {queryUrl}");
+    }
+
     if (response.IsSuccessStatusCode)
     {
         return JObject.Parse(await response.Content.ReadAsStringAsync());
@@ -218,4 +195,77 @@ static Vacancy GetVacancy(dynamic vacancyJson)
     }
 
     return vacancy;
+}
+
+static async Task SearchVacancy(string outputFolder, string vacanciesFolder, string hhApiBaseUrl, string vacanciesMethod, string searchTextQueryParamName, string perPageArgument, string searchText)
+{
+    var searchTextForRequest = Uri.EscapeDataString($"NAME:({searchText})");
+    var queryUrl = $"{hhApiBaseUrl}{vacanciesMethod}?{searchTextQueryParamName}{searchTextForRequest}&{perPageArgument}";
+    var httpClient = new HttpClient();
+    httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v3");
+
+    // https://github.com/hhru/api/issues/74
+    var maxRequestsPerSec = 1f;
+    var delay = TimeSpan.FromSeconds(1 / maxRequestsPerSec);
+
+    var urls = await GetVacanciesSearch(outputFolder, queryUrl, httpClient, delay);
+
+    Console.WriteLine($"Найдено {urls.Count()} вакансий");
+
+    foreach (var url in urls)
+    {
+        Console.WriteLine(url);
+    }
+
+    var vacanciesFilePath = Path.Combine(vacanciesFolder, $"Vacancies {searchText}.csv");
+
+    if (!Directory.Exists(vacanciesFolder))
+    {
+        Directory.CreateDirectory(vacanciesFolder);
+    }
+
+    using (var writer = new StreamWriter(vacanciesFilePath, false))
+    using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+    {
+        if (new FileInfo(vacanciesFilePath).Length == 0)
+        {
+            csv.WriteHeader<Vacancy>();
+            csv.NextRecord();
+            csv.Flush();
+        }
+
+        var counter = 0;
+        var tasks = new ConcurrentBag<Task>();
+        var vacancies = new ConcurrentBag<Vacancy>();
+        foreach (var url in urls)
+        {
+            Console.WriteLine($"Запрашиваем {url}");
+            tasks.Add(GetRequestJsonAsync(url, httpClient, outputFolder)
+                    .ContinueWith(t =>
+                    {
+                        Vacancy vacancy = GetVacancy(t.Result);
+                        vacancies.Add(vacancy);
+                        Console.WriteLine($"Сохранена информация о вакансии {vacancy.VacancyName}. Обработано {++counter}");
+                    }));
+            await Task.Delay(delay);
+        }
+        await Task.WhenAll(tasks);
+
+        foreach (var vacancy in vacancies)
+        {
+            csv.WriteRecord(vacancy);
+            csv.NextRecord();
+            csv.Flush();
+        }
+    }
+
+    Console.WriteLine("Завершено. Нажмите любую клавишу.");
+    try
+    {
+        Console.ReadKey();
+    }
+    catch (InvalidOperationException)
+    {
+        // Handle "An unhandled exception of type 'System.InvalidOperationException' occurred in System.Console.dll"
+    }
 }
