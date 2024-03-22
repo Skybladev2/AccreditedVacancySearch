@@ -83,12 +83,21 @@ static async Task<dynamic> GetRequestJsonAsync(string queryUrl, HttpClient httpC
             response = await httpClient.SendAsync(new HttpRequestMessage(HttpMethod.Get, queryUrl));
             break;
         }
-        catch (System.Net.Sockets.SocketException ex)
+        catch (AggregateException ex)
         {
-            Console.WriteLine($"Ошибка при обращении к {queryUrl}. Ошибка {ex.SocketErrorCode}. Повтор {retryCount + 1} из {maxRetries}");
-            await Task.Delay(delay);
-            delay = TimeSpan.FromSeconds(Math.Pow(2, retryCount + 1));
-            retryCount++;
+            var socketExceptions = ex.Flatten().InnerExceptions.OfType<System.Net.Sockets.SocketException>().ToArray();
+            if (socketExceptions.Length == 0)
+            {
+                throw;
+            }
+
+            foreach (var socketException in socketExceptions)
+            {
+                Console.WriteLine($"Ошибка при обращении к {queryUrl}. Ошибка {socketException.SocketErrorCode}. Повтор {retryCount + 1} из {maxRetries}");
+                await Task.Delay(delay);
+                delay = TimeSpan.FromSeconds(Math.Pow(2, retryCount + 1));
+                retryCount++;
+            }
         }
     }
 
