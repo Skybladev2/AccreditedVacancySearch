@@ -4,12 +4,15 @@ using CsvHelper;
 using HeadHunterSearcher;
 using Newtonsoft.Json.Linq;
 using System.Collections.Concurrent;
-using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using System.Globalization;
+
+InitiateTracer();
 
 var outputFolder = "output";
 var vacanciesFolder = $"{outputFolder + Path.DirectorySeparatorChar}vacancies";
 var vacancyUrlsFilePath = Path.Combine(vacanciesFolder, $"Vacancies.urls");
+var processedUrlsFilePath = Path.Combine(vacanciesFolder, $"Processed.txt");
 
 var hhApiBaseUrl = "https://api.hh.ru";
 var vacanciesMethod = "/vacancies";
@@ -40,15 +43,18 @@ var httpClient = new HttpClient();
 httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v3");
 var vacancyUrls = new List<string>();
 
-var cursor = await GetCursor(outputFolder);
+var processedUrls = await GetProcessedUrls(processedUrlsFilePath);
+Trace.WriteLine($"Ранее обработанных вакансий: {processedUrls.Count}");
 
-if (cursor > 0)
+if (processedUrls.Count > 0)
 {
-    Console.WriteLine($"Cursor: {cursor}");
-    vacancyUrls = File.ReadAllLines(vacancyUrlsFilePath).Skip(cursor).ToList();
+    Trace.WriteLine($"Чтение ссылок на вакансии из {vacancyUrlsFilePath}");
+    vacancyUrls = File.ReadAllLines(vacancyUrlsFilePath).Except(processedUrls).ToList();
+    Trace.WriteLine($"Оставшихся вакансий для обработки: {vacancyUrls.Count}");
 }
 else
 {
+    Trace.WriteLine($"Запрос вакансий");
     foreach (var searchText in searchTexts)
     {
         vacancyUrls.AddRange(await GetAccreditedVacancyUrls(httpClient, requestDelay, outputFolder, hhApiBaseUrl, vacanciesMethod, searchTextQueryParamName, perPageArgument, searchText));
@@ -60,13 +66,28 @@ else
 
 await GetVacancies(vacancyUrls, httpClient, TimeSpan.FromSeconds(1), outputFolder, vacanciesFolder);
 
-static async Task<int> GetCursor(string outputFolder)
+static void InitiateTracer()
 {
-    if (File.Exists(Path.Combine(outputFolder, "cursor.txt")))
+  Trace.Listeners.Clear();
+  var dir = AppDomain.CurrentDomain.BaseDirectory;
+  var twtl = new TextWriterTraceListener("log.txt")
+  {
+    Name = "TextLogger",
+    TraceOutputOptions = TraceOptions.ThreadId | TraceOptions.DateTime
+  };
+  var ctl = new ConsoleTraceListener(false) { TraceOutputOptions = TraceOptions.DateTime };
+  Trace.Listeners.Add(twtl);
+  Trace.Listeners.Add(ctl);
+  Trace.AutoFlush = true;
+}
+
+static async Task<List<string>> GetProcessedUrls(string processedUrlsFilePath)
+{
+    if (File.Exists(processedUrlsFilePath))
     {
-        return int.Parse(File.ReadAllText(Path.Combine(outputFolder, "cursor.txt")));
+        return await File.ReadAllLinesAsync(processedUrlsFilePath).ContinueWith(t => t.Result.ToList());
     }
-    return 0;
+    return new List<string>();
 }
 
 static async Task<IEnumerable<string>> GetAccreditedVacancyUrls(HttpClient httpClient, TimeSpan requestDelay, string outputFolder, string hhApiBaseUrl, string vacanciesMethod, string searchTextQueryParamName, string perPageArgument, string searchText)
@@ -74,11 +95,11 @@ static async Task<IEnumerable<string>> GetAccreditedVacancyUrls(HttpClient httpC
     var searchTextForRequest = Uri.EscapeDataString($"NAME:({searchText})");
     var queryUrl = $"{hhApiBaseUrl}{vacanciesMethod}?{searchTextQueryParamName}{searchTextForRequest}&{perPageArgument}";
     var urls = await GetAccreditedVacancyUrlsFromQueryUrl(outputFolder, queryUrl, httpClient, requestDelay);
-    Console.WriteLine($"Найдено {urls.Count()} вакансий");
+    Trace.WriteLine($"Найдено {urls.Count()} вакансий");
 
     foreach (var url in urls)
     {
-        Console.WriteLine(url);
+        Trace.WriteLine(url);
     }
     return urls;
 }
@@ -107,13 +128,13 @@ static async Task GetVacancies(IEnumerable<string> urls, HttpClient httpClient, 
         var vacancies = new ConcurrentBag<Vacancy>();
         foreach (var url in urls)
         {
-            Console.WriteLine($"Запрашиваем {url}");
+            Trace.WriteLine($"Запрашиваем {url}");
             tasks.Add(GetRequestJsonAsync(url, httpClient, outputFolder)
                     .ContinueWith(t =>
                     {
                         Vacancy vacancy = GetVacancy(t.Result);
                         vacancies.Add(vacancy);
-                        Console.WriteLine($"Сохранена информация о вакансии {vacancy.VacancyName}. Обработано {++counter}");
+                        Trace.WriteLine($"Сохранена информация о вакансии {vacancy.VacancyName}. Обработано {++counter}");
                     }));
             await Task.Delay(requestDelay);
         }
@@ -127,7 +148,7 @@ static async Task GetVacancies(IEnumerable<string> urls, HttpClient httpClient, 
         }
     }
 
-    Console.WriteLine("Завершено. Нажмите любую клавишу.");
+    Trace.WriteLine("Завершено. Нажмите любую клавишу.");
     try
     {
         Console.ReadKey();
@@ -140,9 +161,9 @@ static async Task GetVacancies(IEnumerable<string> urls, HttpClient httpClient, 
 
 static async Task<IEnumerable<string>> GetAccreditedVacancyUrlsFromQueryUrl(string outputFolder, string queryUrl, HttpClient httpClient, TimeSpan delay)
 {
-    Console.WriteLine($"Запрашиваем {queryUrl}");
+    Trace.WriteLine($"Запрашиваем {queryUrl}");
     var response = await GetRequestJsonAsync(queryUrl, httpClient, outputFolder);
-    Console.WriteLine(response.ToString());
+    Trace.WriteLine(response.ToString());
 
     return await GetAccreditedVacancyUrlsFromAllPages(outputFolder, queryUrl, httpClient, delay, response);
 }
@@ -163,12 +184,12 @@ static async Task<List<string>> GetAccreditedVacancyUrlsFromAllPages(string outp
 
 static async Task<List<string>> GetAccreditedVacancyUrlsFromRequestJsonAsync(string queryUrl, HttpClient httpClient, string outputFolder)
 {
-    Console.WriteLine($"Запрашиваем {queryUrl}");
+    Trace.WriteLine($"Запрашиваем {queryUrl}");
     var urls = new List<string>();
     dynamic vacancySearchJson = await GetRequestJsonAsync(queryUrl, httpClient, outputFolder);
     foreach (var item in vacancySearchJson.items)
     {
-        if (item.employer.accredited_it_employer)
+        if (item.employer?.accredited_it_employer == true)
         {
             urls.Add(item.url.ToString());
         }
@@ -201,7 +222,7 @@ static async Task<dynamic> GetRequestJsonAsync(string queryUrl, HttpClient httpC
 
             foreach (var socketException in socketExceptions)
             {
-                Console.WriteLine($"Ошибка при обращении к {queryUrl}. Ошибка {socketException.SocketErrorCode}. Повтор {retryCount + 1} из {maxRetries}");
+                Trace.WriteLine($"Ошибка при обращении к {queryUrl}. Ошибка {socketException.SocketErrorCode}. Повтор {retryCount + 1} из {maxRetries}");
                 await Task.Delay(delay);
                 delay = TimeSpan.FromSeconds(Math.Pow(2, retryCount + 1));
                 retryCount++;
@@ -220,13 +241,13 @@ static async Task<dynamic> GetRequestJsonAsync(string queryUrl, HttpClient httpC
     }
     else
     {
-        Console.WriteLine(response);
+        Trace.WriteLine(response);
         var content = response.Content.ReadAsStringAsync().Result;
         var errorFilename = Path.Combine(outputFolder, "error.txt");
         var directory = Path.GetDirectoryName(errorFilename);
         Directory.CreateDirectory(directory);
         File.WriteAllText(errorFilename, content);
-        Console.WriteLine(content);
+        Trace.WriteLine(content);
         if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
             dynamic errorJson = JObject.Parse(content);
@@ -236,7 +257,7 @@ static async Task<dynamic> GetRequestJsonAsync(string queryUrl, HttpClient httpC
             {
                 if (error.type == "captcha_required")
                 {
-                    Console.WriteLine($"Файл ссылки на каптчу сохранён по адресу {errorFilename}");
+                    Trace.WriteLine($"Файл ссылки на каптчу сохранён по адресу {errorFilename}");
                 }
             }
             return null;
