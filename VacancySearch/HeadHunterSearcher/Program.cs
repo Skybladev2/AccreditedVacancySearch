@@ -130,7 +130,6 @@ static async Task GetVacancies(IEnumerable<string> urls, HttpClient httpClient, 
                     .ContinueWith(async t =>
                     {
                         Vacancy vacancy = GetVacancy(t.Result);
-                        //vacancies.Add(vacancy);
                         await csv.WriteRecordsAsync(new[] { vacancy });
                         csv.Flush();
                         await processedUrlsWriter.WriteLineAsync(url);
@@ -139,13 +138,6 @@ static async Task GetVacancies(IEnumerable<string> urls, HttpClient httpClient, 
             await Task.Delay(requestDelay);
         }
         await Task.WhenAll(tasks);
-
-        // foreach (var vacancy in vacancies)
-        // {
-        //     csv.WriteRecord(vacancy);
-        //     csv.NextRecord();
-        //     csv.Flush();
-        // }
     }
 
     Console.WriteLine("Завершено. Нажмите любую клавишу.");
@@ -335,4 +327,3 @@ static Vacancy GetVacancy(dynamic vacancyJson)
 
     return vacancy;
 }
-
