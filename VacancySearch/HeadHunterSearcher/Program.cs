@@ -68,21 +68,6 @@ else
 
 await GetVacancies(vacancyUrls, httpClient, TimeSpan.FromSeconds(1), vacanciesFilePath, processedUrlsFilePath);
 
-static void InitiateTracer()
-{
-    Trace.Listeners.Clear();
-    var dir = AppDomain.CurrentDomain.BaseDirectory;
-    var twtl = new TextWriterTraceListener("log.txt")
-    {
-        Name = "TextLogger",
-        TraceOutputOptions = TraceOptions.ThreadId | TraceOptions.DateTime
-    };
-    var ctl = new ConsoleTraceListener(false) { TraceOutputOptions = TraceOptions.DateTime };
-    Trace.Listeners.Add(twtl);
-    Trace.Listeners.Add(ctl);
-    Trace.AutoFlush = true;
-}
-
 static async Task<List<string>> GetProcessedUrls(string processedUrlsFilePath)
 {
     if (File.Exists(processedUrlsFilePath))
