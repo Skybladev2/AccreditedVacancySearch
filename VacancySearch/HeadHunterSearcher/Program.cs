@@ -4,7 +4,6 @@ using CsvHelper;
 using HeadHunterSearcher;
 using Newtonsoft.Json.Linq;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Globalization;
 
 var outputFolder = "output";
@@ -26,14 +25,6 @@ var maxRequestsPerSec = 1f;
 var requestDelay = TimeSpan.FromSeconds(1 / maxRequestsPerSec);
 var searchTexts = new List<string>()
 {
-    "Unity",
-    "Разработчик C#",
-    "Разработчик .NET",
-    "C# Developer",
-    ".NET Developer",
-    "Backend Developer",
-    "Backend разработчик",
-    "Бэкенд-разработчик",
     "Golang Developer",
     "Go Developer",
     "Разработчик Golang",
@@ -43,12 +34,12 @@ var searchTexts = new List<string>()
 
 var httpClient = new HttpClient();
 httpClient.DefaultRequestHeaders.Add("User-Agent", "VacancySearch.v3");
-var vacancyUrls = new List<string>();
 
-var processedUrls = await GetProcessedUrls(processedUrlsFilePath);
+var processedUrls = await GetUrlsInFile(processedUrlsFilePath);
 Console.WriteLine($"Ранее обработанных вакансий: {processedUrls.Count}");
+var vacancyUrls = await GetUrlsInFile(vacancyUrlsFilePath);
 
-if (processedUrls.Count > 0)
+if (vacancyUrls.Count > 0)
 {
     Console.WriteLine($"Чтение ссылок на вакансии из {vacancyUrlsFilePath}");
     vacancyUrls = File.ReadAllLines(vacancyUrlsFilePath).Except(processedUrls).ToList();
@@ -66,13 +57,13 @@ else
     File.WriteAllLines(vacancyUrlsFilePath, vacancyUrls);
 }
 
-await GetVacancies(vacancyUrls, httpClient, TimeSpan.FromSeconds(1), vacanciesFilePath, processedUrlsFilePath);
+await GetVacancies(vacancyUrls.Except(processedUrls), httpClient, TimeSpan.FromSeconds(1), vacanciesFilePath, processedUrlsFilePath);
 
-static async Task<List<string>> GetProcessedUrls(string processedUrlsFilePath)
+static async Task<List<string>> GetUrlsInFile(string filePath)
 {
-    if (File.Exists(processedUrlsFilePath))
+    if (File.Exists(filePath))
     {
-        return await File.ReadAllLinesAsync(processedUrlsFilePath).ContinueWith(t => t.Result.ToList());
+        return await File.ReadAllLinesAsync(filePath).ContinueWith(t => t.Result.ToList());
     }
     return new List<string>();
 }
