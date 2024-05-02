@@ -60,13 +60,6 @@ else
 }
 
 var vacancies = await GetVacancies(vacancyUrls.Except(processedUrls), httpClient, TimeSpan.FromSeconds(1), vacanciesFilePath, processedUrlsFilePath);
-// var vacancies = new HashSet<Vacancy>{
-//     new Vacancy{ CompanyId = "1", CompanyName = "2", VacancyName = "3", Description = "4" },
-//     new Vacancy{ CompanyId = "1", CompanyName = "2", VacancyName = "3", Description = "4" },
-//     new Vacancy{ CompanyId = "2", CompanyName = "3", VacancyName = "4", Description = "5" },
-//     new Vacancy{ CompanyId = "2", CompanyName = "3", VacancyName = "4", Description = "5" },
-//     new Vacancy{ CompanyId = "3", CompanyName = "4", VacancyName = "5", Description = "6" }
-// };
 var deduplicatedVacancies = DeduplicateVacancies(vacancies, vacanciesFilePath);
 await SerializeVacancies(deduplicatedVacancies, vacanciesFilePath);
 
@@ -74,15 +67,12 @@ async Task SerializeVacancies(List<Vacancy> deduplicatedVacancies, string vacanc
 {
     using (var vacanciesWriter = new StreamWriter(vacanciesFilePath, true))
     using (var csv = new CsvWriter(vacanciesWriter, CultureInfo.InvariantCulture))
-    //using (var processedUrlsWriter = new StreamWriter(processedUrlsFilePath, true))
     {
-        //vacanciesWriter.AutoFlush = true;
-        //processedUrlsWriter.AutoFlush = true;
         if (new FileInfo(vacanciesFilePath).Length == 0)
         {
             csv.WriteHeader<Vacancy>();
             csv.NextRecord();
-            //csv.Flush();
+            csv.Flush();
         }
         
         await csv.WriteRecordsAsync(deduplicatedVacancies);
@@ -112,15 +102,6 @@ static List<Vacancy> DeduplicateVacancies(HashSet<Vacancy> vacancies, string vac
         {
             essentialVacancies.Add(vacancyEssentialData, new List<Vacancy> { vacancy });
         }
-
-        // if (vacanciesDescription.Contains(vacancy.Description))
-        // {
-        //     Console.WriteLine($"Дубликат описания вакансии: {vacancy.CompanyName} {vacancy.VacancyName} {vacancy.VacancyUrl}");
-        // }
-        // else
-        // {
-        //     vacanciesDescription.Add(vacancy.Description);
-        // }
     }
 
     var deduplicatedVacancies = new List<Vacancy>(essentialVacancies.Count);
@@ -131,6 +112,7 @@ static List<Vacancy> DeduplicateVacancies(HashSet<Vacancy> vacancies, string vac
             vacancyKeyValuePair.Value.FirstOrDefault(x => x.AreaName == "Санкт-Петербург") ??
             vacancyKeyValuePair.Value.FirstOrDefault(x => x.AreaName == "Казань") ??
             vacancyKeyValuePair.Value.FirstOrDefault(x => x.AreaName == "Нижний Новгород") ??
+            vacancyKeyValuePair.Value.FirstOrDefault(x => x.AreaName == "Калуга") ??
             vacancyKeyValuePair.Value.First());
     }
 
@@ -169,12 +151,6 @@ static async Task<HashSet<Vacancy>> GetVacancies(IEnumerable<string> urls, HttpC
     using (var processedUrlsWriter = new StreamWriter(processedUrlsFilePath, true))
     {
         processedUrlsWriter.AutoFlush = true;
-        // if (new FileInfo(vacanciesFilePath).Length == 0)
-        // {
-        //     csv.WriteHeader<Vacancy>();
-        //     csv.NextRecord();
-        //     csv.Flush();
-        // }
 
         var counter = 0;
         var tasks = new ConcurrentBag<Task>();
@@ -187,9 +163,6 @@ static async Task<HashSet<Vacancy>> GetVacancies(IEnumerable<string> urls, HttpC
                     {
                         Vacancy vacancy = GetVacancy(t.Result);
                         vacancies.Add(vacancy);
-                        // await csv.WriteRecordsAsync(new[] { vacancy });
-                        // csv.Flush();
-                        //await processedUrlsWriter.WriteLineAsync(url);
                         Console.WriteLine($"Получена вакансия {vacancy.VacancyName}. Обработано {++counter}");
                     }));
             await Task.Delay(requestDelay);
