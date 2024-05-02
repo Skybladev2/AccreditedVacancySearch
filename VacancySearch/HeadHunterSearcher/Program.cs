@@ -25,11 +25,13 @@ var maxRequestsPerSec = 1f;
 var requestDelay = TimeSpan.FromSeconds(1 / maxRequestsPerSec);
 var searchTexts = new List<string>()
 {
-    "Golang Developer",
-    "Go Developer",
-    "Разработчик Golang",
-    "Разработчик Go",
-    "Build Engineer",
+    //"DevOps",
+    "C# программист",
+    "C# разработчик",
+    ".NET программист",
+    ".NET разработчик",
+    "C# developer",
+    ".NET developer",
 };
 
 var httpClient = new HttpClient();
@@ -57,7 +59,83 @@ else
     File.WriteAllLines(vacancyUrlsFilePath, vacancyUrls);
 }
 
-await GetVacancies(vacancyUrls.Except(processedUrls), httpClient, TimeSpan.FromSeconds(1), vacanciesFilePath, processedUrlsFilePath);
+var vacancies = await GetVacancies(vacancyUrls.Except(processedUrls), httpClient, TimeSpan.FromSeconds(1), vacanciesFilePath, processedUrlsFilePath);
+// var vacancies = new HashSet<Vacancy>{
+//     new Vacancy{ CompanyId = "1", CompanyName = "2", VacancyName = "3", Description = "4" },
+//     new Vacancy{ CompanyId = "1", CompanyName = "2", VacancyName = "3", Description = "4" },
+//     new Vacancy{ CompanyId = "2", CompanyName = "3", VacancyName = "4", Description = "5" },
+//     new Vacancy{ CompanyId = "2", CompanyName = "3", VacancyName = "4", Description = "5" },
+//     new Vacancy{ CompanyId = "3", CompanyName = "4", VacancyName = "5", Description = "6" }
+// };
+var deduplicatedVacancies = DeduplicateVacancies(vacancies, vacanciesFilePath);
+await SerializeVacancies(deduplicatedVacancies, vacanciesFilePath);
+
+async Task SerializeVacancies(List<Vacancy> deduplicatedVacancies, string vacanciesFilePath)
+{
+    using (var vacanciesWriter = new StreamWriter(vacanciesFilePath, true))
+    using (var csv = new CsvWriter(vacanciesWriter, CultureInfo.InvariantCulture))
+    //using (var processedUrlsWriter = new StreamWriter(processedUrlsFilePath, true))
+    {
+        //vacanciesWriter.AutoFlush = true;
+        //processedUrlsWriter.AutoFlush = true;
+        if (new FileInfo(vacanciesFilePath).Length == 0)
+        {
+            csv.WriteHeader<Vacancy>();
+            csv.NextRecord();
+            //csv.Flush();
+        }
+        
+        await csv.WriteRecordsAsync(deduplicatedVacancies);
+        csv.Flush();
+    }
+}
+
+static List<Vacancy> DeduplicateVacancies(HashSet<Vacancy> vacancies, string vacanciesFilePath)
+{
+    var vacanciesDescription = new HashSet<string>();
+    var essentialVacancies = new Dictionary<VacancyEssentialData, List<Vacancy>>();
+    foreach (var vacancy in vacancies)
+    {
+        var vacancyEssentialData = new VacancyEssentialData
+        {
+            CompanyId = vacancy.CompanyId,
+            CompanyName = vacancy.CompanyName,
+            VacancyName = vacancy.VacancyName,
+            Description = vacancy.Description
+        };
+
+        if (essentialVacancies.ContainsKey(vacancyEssentialData))
+        {
+            essentialVacancies[vacancyEssentialData].Add(vacancy);
+        }
+        else
+        {
+            essentialVacancies.Add(vacancyEssentialData, new List<Vacancy> { vacancy });
+        }
+
+        // if (vacanciesDescription.Contains(vacancy.Description))
+        // {
+        //     Console.WriteLine($"Дубликат описания вакансии: {vacancy.CompanyName} {vacancy.VacancyName} {vacancy.VacancyUrl}");
+        // }
+        // else
+        // {
+        //     vacanciesDescription.Add(vacancy.Description);
+        // }
+    }
+
+    var deduplicatedVacancies = new List<Vacancy>(essentialVacancies.Count);
+    foreach (var vacancyKeyValuePair in essentialVacancies)
+    {
+        deduplicatedVacancies.Add(
+            vacancyKeyValuePair.Value.FirstOrDefault(x => x.AreaName == "Москва") ??
+            vacancyKeyValuePair.Value.FirstOrDefault(x => x.AreaName == "Санкт-Петербург") ??
+            vacancyKeyValuePair.Value.FirstOrDefault(x => x.AreaName == "Казань") ??
+            vacancyKeyValuePair.Value.FirstOrDefault(x => x.AreaName == "Нижний Новгород") ??
+            vacancyKeyValuePair.Value.First());
+    }
+
+    return deduplicatedVacancies;
+}
 
 static async Task<List<string>> GetUrlsInFile(string filePath)
 {
@@ -82,23 +160,25 @@ static async Task<IEnumerable<string>> GetAccreditedVacancyUrls(HttpClient httpC
     return urls;
 }
 
-static async Task GetVacancies(IEnumerable<string> urls, HttpClient httpClient, TimeSpan requestDelay, string vacanciesFilePath, string processedUrlsFilePath)
+static async Task<HashSet<Vacancy>> GetVacancies(IEnumerable<string> urls, HttpClient httpClient, TimeSpan requestDelay, string vacanciesFilePath, string processedUrlsFilePath)
 {
+    var vacancies = new ConcurrentBag<Vacancy>();
+
     using (var vacanciesWriter = new StreamWriter(vacanciesFilePath, true))
     using (var csv = new CsvWriter(vacanciesWriter, CultureInfo.InvariantCulture))
     using (var processedUrlsWriter = new StreamWriter(processedUrlsFilePath, true))
     {
         processedUrlsWriter.AutoFlush = true;
-        if (new FileInfo(vacanciesFilePath).Length == 0)
-        {
-            csv.WriteHeader<Vacancy>();
-            csv.NextRecord();
-            csv.Flush();
-        }
+        // if (new FileInfo(vacanciesFilePath).Length == 0)
+        // {
+        //     csv.WriteHeader<Vacancy>();
+        //     csv.NextRecord();
+        //     csv.Flush();
+        // }
 
         var counter = 0;
         var tasks = new ConcurrentBag<Task>();
-        var vacancies = new ConcurrentBag<Vacancy>();
+
         foreach (var url in urls)
         {
             Console.WriteLine($"Запрашиваем {url}");
@@ -106,25 +186,18 @@ static async Task GetVacancies(IEnumerable<string> urls, HttpClient httpClient, 
                     .ContinueWith(async t =>
                     {
                         Vacancy vacancy = GetVacancy(t.Result);
-                        await csv.WriteRecordsAsync(new[] { vacancy });
-                        csv.Flush();
-                        await processedUrlsWriter.WriteLineAsync(url);
-                        Console.WriteLine($"Сохранена информация о вакансии {vacancy.VacancyName}. Обработано {++counter}");
+                        vacancies.Add(vacancy);
+                        // await csv.WriteRecordsAsync(new[] { vacancy });
+                        // csv.Flush();
+                        //await processedUrlsWriter.WriteLineAsync(url);
+                        Console.WriteLine($"Получена вакансия {vacancy.VacancyName}. Обработано {++counter}");
                     }));
             await Task.Delay(requestDelay);
         }
         await Task.WhenAll(tasks);
     }
 
-    Console.WriteLine("Завершено. Нажмите любую клавишу.");
-    try
-    {
-        Console.ReadKey();
-    }
-    catch (InvalidOperationException)
-    {
-        // Handle "An unhandled exception of type 'System.InvalidOperationException' occurred in System.Console.dll"
-    }
+    return vacancies.ToHashSet();
 }
 
 static async Task<IEnumerable<string>> GetAccreditedVacancyUrlsFromQueryUrl(string outputFolder, string queryUrl, HttpClient httpClient, TimeSpan delay)
